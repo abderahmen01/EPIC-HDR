@@ -2,27 +2,26 @@ import torch
 import math
 import torch.nn.functional as F
 
+
 def upsample(img, odd, filt):
     img = F.pad(img, (1, 1, 1, 1), mode='replicate')
     h = 2 * img.shape[2]
     w = 2 * img.shape[3]
-    if img.is_cuda:
-        o = torch.zeros([img.shape[0], img.shape[1], h, w], device=img.get_device())
-    else:
-        o = torch.zeros([img.shape[0], img.shape[1], h, w])
+    # Create tensor on the same device as input
+    o = torch.zeros([img.shape[0], img.shape[1], h, w], device=img.device)
     o[:, :, 0:h:2, 0:w:2] = 4 * img
     o = F.conv2d(o, filt, padding=math.floor(filt.shape[2] / 2))
     o = o[:, :, 2:h - 2 - odd[0], 2:w - 2 - odd[1]]
-
     return o
+
 
 def downsample(img, filt):
     pad = math.floor(filt.shape[2]/2)
     img = F.pad(img, (pad, pad, pad, pad), mode='replicate')
     o = F.conv2d(img, filt)
     o = o[:, :, :img.shape[2]:2, :img.shape[3]:2]
-
     return o
+
 
 def laplacian_pyramid_s(img, n_lev, filt):
     pyr = [0] * n_lev
@@ -38,6 +37,7 @@ def laplacian_pyramid_s(img, n_lev, filt):
     pyr[n_lev - 1] = o
 
     return pyr
+
 
 def nlp(img, n_lev, params):  # 求得原图的拉普拉斯金字塔
         npyr = [0] * n_lev
@@ -60,6 +60,7 @@ def nlp(img, n_lev, params):  # 求得原图的拉普拉斯金字塔
         npyr[n_lev-1] = pyr[n_lev-1] / den
 
         return npyr
+
 
 class NLPD_Loss(torch.nn.Module):
     def __init__(self):
@@ -106,12 +107,16 @@ class NLPD_Loss(torch.nn.Module):
             sigmas = self.params['sigmas']
             F1 = self.params['F1']
 
-        # Get device from input tensor
-        device = h_img.device
-        filts_0 = filts_0.to(device)
-        filts_1 = filts_1.to(device)
-        sigmas = sigmas.to(device)
-        F1 = F1.to(device)
+        if h_img.is_cuda:
+            filts_0 = filts_0.cuda(h_img.get_device())
+            filts_1 = filts_1.cuda(h_img.get_device())
+            sigmas = sigmas.cuda(h_img.get_device())
+            F1 = F1.cuda(h_img.get_device())
+
+        filts_0 = filts_0.type_as(h_img)
+        filts_1 = filts_1.type_as(h_img)
+        sigmas = sigmas.type_as(h_img)
+        F1 = F1.type_as(h_img)
 
         self.params['filts'][0] = filts_0
         self.params['filts'][1] = filts_1
