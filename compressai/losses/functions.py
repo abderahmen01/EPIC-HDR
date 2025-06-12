@@ -158,27 +158,26 @@ class LDR_Seq(torch.nn.Module):
         return Y
 
     def generation(self, img):
-       b = 0
+        b = 0
         L = self.get_luminance(img)
         img_l = torch.log2(L + 0.5)
     
-    # --- TEMPORARY DEBUGGING ---
-    # l_img = Percentile()(img_l.reshape(1, -1).squeeze(), [0, 100])
+        # --- TEMPORARY DEBUGGING ---
+        # l_img = Percentile()(img_l.reshape(1, -1).squeeze(), [0, 100])
     
-    # Replace percentile with a simple min/max to test if Percentile is the issue
-    # This is a good approximation of the 0th and 100th percentile
+        # Replace percentile with a simple min/max to test if Percentile is the issue
+        # This is a good approximation of the 0th and 100th percentile
         print("[DEBUG] Using torch.min/max instead of Percentile")
         l_min_val = torch.min(img_l)
         l_max_val = torch.max(img_l)
-    # --- END OF DEBUGGING ---
+        # --- END OF DEBUGGING ---
 
-    # Use the new values
+        # Use the new values
         l_min = l_min_val
         l_max = l_max_val
 
         f8_stops = torch.ceil((l_max - l_min) / 8)
-        l_start = l_min + (l_max - l_min - f8_stops * 8) / 2
-        
+        l_start = l_min + (l_max - l_min - f8_stops * 8) / 2 
         # --- CRITICAL FIX FOR TPU HANG ---
         # Calculate 'number' as a tensor first to preserve the computation graph.
         number_tensor = 3 * f8_stops
