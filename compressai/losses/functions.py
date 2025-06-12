@@ -197,28 +197,58 @@ class LDR_Seq(torch.nn.Module):
         return result, ek_value
 
 
-class LDR_Seq_out(torch.nn.Module):
+class LDR_Seq(torch.nn.Module):
     def __init__(self):
-        super(LDR_Seq_out, self).__init__()
+        super(LDR_Seq, self).__init__()
 
-    def generation(self, img, ek_value):
+    def get_luminance(self,img):
+        # ... (this part is fine)
+        if (img.shape[1] == 3):
+            R = img[:, 2, :, :]
+            G = img[:, 1, :, :]
+            B = img[:, 0, :, :]
+            Y = R * 0.212656 + G * 0.715158 + B * 0.072186
+        elif (img.shape[1] == 1):
+            Y = img
+        else:
+            print('Error: get_luminance: wrong matrix dimension')
+        return Y
 
-        #img_q = img[img >= 0]
-        b = 0#1 / 128
-        #min_v = torch.min(img_q)
-        #img[img < 0] = min_v
-        number = len(ek_value)
-
+    def generation(self, img):
+        b = 0
+        L = self.get_luminance(img)
+        img_l = torch.log2(L+0.5)
+        
+        # Percentile() might be an issue. Let's assume it's TPU-compatible for now.
+        l_img = Percentile()(img_l.reshape(1, -1).squeeze(), [0, 100])
+        l_min = l_img[0]
+        l_max = l_img[1]
+        
+        f8_stops = torch.ceil((l_max - l_min) / 8)
+        l_start = l_min + (l_max - l_min - f8_stops * 8) / 2
+        
+        # --- START OF FIX ---
+        # Calculate number as a tensor to keep it on the device and in the graph
+        number_tensor = 3 * f8_stops 
+        
+        # Move the tensor to CPU and convert to a standard Python int to be used in the loop range.
+        # This is a sync point, but necessary here. .item() moves to CPU and gets the Python value.
+        number = int(number_tensor.item())
+        # --- END OF FIX ---
 
         result = []
+        ek_value = []
         for i in range(number):
-            ek = ek_value[i]
-            img1 = (img / (ek+0.00000001) - b) / (1 - b)
-            imgClamp = img1.clamp(1e-8, 1)  #torch.clamp(img1,0, 1)#, 0, 1torch.sigmoid(img1) #
+            k = i * 8 + 3
+            # Calculations should use the on-device tensors (l_start, etc.)
+            ek = 2 ** (l_start + (k / 3))
+            img1 = (img / (ek + 1e-8) - b) / (1 - b) # Added epsilon for stability
+            imgClamp = img1.clamp(1e-8, 1)
             imgP = (imgClamp) ** (1 / 2.2)
 
             result.append(imgP)
-        return result
+            ek_value.append(ek)
+        return result, ek_value
 
 
 class hdrMetric(torch.nn.Module):
