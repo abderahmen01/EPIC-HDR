@@ -216,18 +216,25 @@ class hdrMetric(torch.nn.Module):
         self.loss_fun = nn.L1Loss()
 
     def forward(self, output, gt):
-        # The generation of gt_seq is part of the graph and has gradients.
-        # .detach() here if GT generation should not be part of the gradient calculation
-        # for the main model. This is a crucial choice.
-        # If ek should be constant based on the ground truth only, detach gt before generation.
+        # --- CRITICAL FIX FOR DYNAMIC GRAPH ---
+        # All calculations depending on the ground truth (gt) should NOT be part of the
+        # computation graph for the backward pass of the main model.
+        # Use torch.no_grad() to compute the exposure values (ek) and the
+        # ground truth sequence (gt_seq) as fixed targets.
+        
         with torch.no_grad():
             gt_seq, ek = self.generate_GT.generation(gt)
-        
+
+        # Now, only the generation of the output sequence is part of the autograd graph.
+        # The `ek` values are now treated as constants.
+        # The loop inside generate_out is now of a fixed length for this forward pass.
         output_seq = self.generate_out.generation(output, ek)
 
+        # The loss calculation remains the same.
         Q = []
         for k in range(len(output_seq)):
-            # L1 loss between generated sequences
+            # The target, gt_seq[k], does not have a grad_fn.
+            # The input, output_seq[k], does. This is correct.
             Qk = self.loss_fun(gt_seq[k], output_seq[k])
             Q.append(Qk)
 
